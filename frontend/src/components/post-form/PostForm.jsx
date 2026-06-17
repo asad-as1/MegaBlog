@@ -4,19 +4,19 @@ import { Button, Input, RTE, Select } from "..";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import Cookie from "cookies-js";
-import { upload } from "../../firebase";
+import { uploadMedia } from "../../api/media";
 import Swal from 'sweetalert2'; 
-import { getStorage, ref, deleteObject } from "firebase/storage"
 
 
 
 export default function PostForm({ post }) {
-  const { register, handleSubmit, setValue, control, getValues, formState: { errors }, setError } = useForm({
+  const { register, handleSubmit, setValue, control, getValues, watch, formState: { errors }, setError } = useForm({
     defaultValues: {
       title: post?.title || "",
       categories: post?.categories || "",
       content: post?.content || "",
       isPublished: post?.isPublished || "Public",
+      scheduledAt: post?.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 16) : "",
     },
   });
 
@@ -28,6 +28,7 @@ export default function PostForm({ post }) {
   const [fileError, setFileError] = useState(""); // File input error
   const [errorMessage, setErrorMessage] = useState(""); // Error message state
   const navigate = useNavigate();
+  const publishStatus = watch("isPublished");
 
   const submit = async (data) => {
     if (!data.media && !post?.media) {
@@ -45,26 +46,19 @@ export default function PostForm({ post }) {
   
       // If a new media file is uploaded
       if (data.media) {
-        // Delete previous media if it exists
-        if (post?.media?.url) {
-          const storageRef = getStorage();
-          const oldMediaRef = ref(storageRef, post.media.url);
-          await deleteObject(oldMediaRef).catch((error) => {
-            console.error("Error deleting previous media:", error);
-          });
-        }
-  
         // Upload new media
         const startTime = Date.now();
-        const url = await upload(data.media, (progress) => {
+        const mediaResult = await uploadMedia(data.media, (progress) => {
           setUploadProgress(progress);
         });
         const endTime = Date.now();
         const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
   
         newMedia = {
-          url: url,
-          isVideo: isVideo,
+          url: mediaResult.url,
+          publicId: mediaResult.publicId,
+          resourceType: mediaResult.resourceType,
+          isVideo: mediaResult.resourceType === "video",
         };
         setUploadTime(timeTaken);
       }
@@ -209,11 +203,19 @@ export default function PostForm({ post }) {
         )}
 
         <Select
-          options={["Public", "Private"]}
+          options={["Public", "Private", "Scheduled"]}
           label="Status"
           className="mb-4"
           {...register("isPublished", { required: "Status is required" })}
-        />        
+        />
+        {publishStatus === "Scheduled" && (
+          <Input
+            label="Schedule At :"
+            type="datetime-local"
+            className="mb-4"
+            {...register("scheduledAt", { required: "Schedule date/time is required" })}
+          />
+        )}
         <Button type="submit" bgColor={post ? "bg-green-500" : undefined} className="w-full">
           {post ? "Update" : "Submit"}
         </Button>

@@ -16,6 +16,15 @@ const postSchema = new Schema({
       type: String,
       required: true
     },
+    publicId: {
+      type: String,
+      required: true
+    },
+    resourceType: {
+      type: String,
+      enum: ["image", "video"],
+      required: true
+    },
     isVideo: {
       type: Boolean, // Corrected from `boolean` to `Boolean`
       default: false
@@ -56,7 +65,12 @@ const postSchema = new Schema({
   },
   isPublished: {
     type: String,
+    enum: ["Public", "Private", "Scheduled"],
     default: "Public"
+  },
+  scheduledAt: {
+    type: Date,
+    default: null
   }
 });
 

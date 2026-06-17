@@ -5,6 +5,8 @@ const dotenv = require('dotenv');
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const bodyParser = require('body-parser');
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 dotenv.config();
 
@@ -13,6 +15,15 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN,
   credentials: true,
 }));
+app.use(helmet());
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
 
 app.use(express.json()); 
 app.use(bodyParser.json()); 
@@ -37,8 +48,12 @@ connect();
 // Routes
 const userRouter = require('./src/router/user.routes');
 const postRouter = require('./src/router/post.routes');
+const mediaRouter = require("./src/router/media.routes");
+const notificationRouter = require("./src/router/notification.routes");
 app.use("/user", userRouter);
 app.use("/post", postRouter);
+app.use("/media", mediaRouter);
+app.use("/notifications", notificationRouter);
 
 // Basic route
 app.get("/", (req, res) => {

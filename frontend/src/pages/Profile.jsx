@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { Container, PostCard } from "../components";
-import { getStorage, ref, deleteObject } from "firebase/storage"
 import axios from "axios";
 import { 
   UserCircle2, 
@@ -10,6 +9,8 @@ import {
   ImageIcon 
 } from "lucide-react";
 import Button from "../components/Button";
+import { Link } from "react-router-dom";
+
 import { useNavigate, useParams } from "react-router-dom";
 import Cookie from "cookies-js";
 import Error from "../pages/ErrorPage";
@@ -24,21 +25,50 @@ function Profile() {
   const [posts, setPost] = useState([]);
   const [user, setUser] = useState({});
   const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [error, setError] = useState(null);
   const token = Cookie.get("token");
+
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+
 
   useEffect(() => {
     const fetchUserData = async () => {
       try {
         const response = await axios.get(
-          `${import.meta.env.VITE_URL}user/profile/${username}`, {
+          `${import.meta.env.VITE_URL}user/profile/${username}`,
+          {
             headers: { Authorization: `Bearer ${token}` },
             withCredentials: true,
           }
         );
+
         setUser(response.data.user);
         setPost(response.data.user.posts);
         setIsOwnProfile(response.data.isOwnProfile);
+        setIsFollowing(response.data.isFollowing);
+
+        // Fetch followers/following counts (dashboard tiles)
+        const [followersRes, followingRes] = await Promise.all([
+          axios.get(
+            `${import.meta.env.VITE_URL}user/${response.data.user._id}/followers`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              withCredentials: true,
+            }
+          ),
+          axios.get(
+            `${import.meta.env.VITE_URL}user/${response.data.user._id}/following`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              withCredentials: true,
+            }
+          ),
+        ]);
+
+        setFollowersCount(followersRes.data.followers?.length || 0);
+        setFollowingCount(followingRes.data.following?.length || 0);
       } catch (error) {
         console.error("Failed to fetch user data:", error);
         setError("Failed to load user data. Please try again later.");
@@ -65,30 +95,6 @@ function Profile() {
   
     if (result.isConfirmed) {
       try {
-        const storage = getStorage();
-  
-        // Delete all user posts from Firebase Storage
-        for (const post of posts) {
-          // console.log(post, "hii")
-          if (post.media.url) {
-            const filePath = decodeURIComponent(post.media.url.split("/").pop().split("?")[0]);
-            const fileRef = ref(storage, filePath);
-            await deleteObject(fileRef).catch((error) =>
-              console.error("Error deleting file:", error)
-            );
-          }
-        }
-  
-        // Delete user profile picture from Firebase Storage (if exists)
-        if (user.profilePicture) {
-          const filePath = decodeURIComponent(user.profilePicture.split("/").pop().split("?")[0]);
-          const fileRef = ref(storage, filePath);
-          await deleteObject(fileRef).catch((error) =>
-            console.error("Error deleting profile picture:", error)
-          );
-        }
-  
-        // Delete user from database
         await axios.delete(`${import.meta.env.VITE_URL}user/delete`, {
           headers: { Authorization: `Bearer ${token}` },
           withCredentials: true,
@@ -113,6 +119,34 @@ function Profile() {
           text: "An error occurred while deleting your account. Please try again.",
         });
       }
+    }
+  };
+
+  const handleFollowToggle = async () => {
+    try {
+      if (isFollowing) {
+        await axios.delete(`${import.meta.env.VITE_URL}user/follow/${user._id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true,
+        });
+        setIsFollowing(false);
+      } else {
+        await axios.post(
+          `${import.meta.env.VITE_URL}user/follow/${user._id}`,
+          {},
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            withCredentials: true,
+          }
+        );
+        setIsFollowing(true);
+      }
+    } catch (error) {
+      MySwal.fire({
+        icon: "error",
+        title: "Action failed",
+        text: "Unable to update follow status.",
+      });
     }
   };
   
@@ -158,15 +192,29 @@ function Profile() {
                 <h2 className="text-3xl font-bold">{user.username}</h2>
                 <p className="text-xl opacity-80 mt-2">{user.name}</p>
                 
-                <div className="flex justify-center md:justify-start space-x-8 mt-4">
+<div className="flex justify-center md:justify-start space-x-8 mt-4">
                   <div className="text-center">
                     <div className="text-3xl font-bold">{posts.length}</div>
                     <div className="text-sm opacity-80">Total Posts</div>
                   </div>
-                  <div className="text-center">
-                    <div className="text-3xl font-bold">{totalHiddenPosts}</div>
-                    <div className="text-sm opacity-80">Private Posts</div>
-                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/profile/${user.username}/followers`)}
+                    className="text-center hover:opacity-90 transition"
+                  >
+                    <div className="text-3xl font-bold">{followersCount}</div>
+                    <div className="text-sm opacity-80">Followers</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/profile/${user.username}/following`)}
+                    className="text-center hover:opacity-90 transition"
+                  >
+                    <div className="text-3xl font-bold">{followingCount}</div>
+                    <div className="text-sm opacity-80">Following</div>
+                  </button>
                 </div>
               </div>
             </div>
@@ -209,6 +257,16 @@ function Profile() {
                   <span>Delete Account</span>
                 </Button>
               </div>
+            )}
+            {!isOwnProfile && (
+              <Button
+                onClick={handleFollowToggle}
+                className={`${
+                  isFollowing ? "bg-gray-700" : "bg-blue-600"
+                } text-white py-3 px-6 rounded-lg transition duration-300`}
+              >
+                {isFollowing ? "Unfollow" : "Follow"}
+              </Button>
             )}
           </div>
 

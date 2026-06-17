@@ -15,6 +15,9 @@ import Favourites from "./pages/Favourites.jsx";
 import EditProfile from "./pages/EditProfile.jsx";
 import Search from "./pages/Search.jsx";
 import NotFound from "./pages/NotFound.jsx";
+import Notifications from "./pages/Notifications.jsx";
+import FollowersList from "./pages/FollowersList.jsx";
+
 
 const router = createBrowserRouter([
   {
@@ -40,9 +43,25 @@ const router = createBrowserRouter([
         ),
       },
       {
+        path: "/notifications",
+        element: <ProtectedRoute element={<Notifications />} />,
+      },
+      {
         path: "/profile/:username",
         element: (
           <ProtectedRoute element={<Profile />} />
+        ),
+      },
+      {
+        path: "/profile/:username/followers",
+        element: (
+          <ProtectedRoute element={<FollowersList type="followers" />} />
+        ),
+      },
+      {
+        path: "/profile/:username/following",
+        element: (
+          <ProtectedRoute element={<FollowersList type="following" />} />
         ),
       },
       {

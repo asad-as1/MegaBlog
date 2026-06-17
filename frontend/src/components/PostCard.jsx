@@ -104,12 +104,14 @@ function PostCard({ _id, title, isPublished, media, author }) {
           <div className="mt-4 flex justify-between items-center">
             <span
               className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                isPublished
+                isPublished === "Public"
                   ? "bg-green-100 text-green-800"
+                  : isPublished === "Scheduled"
+                  ? "bg-yellow-100 text-yellow-800"
                   : "bg-gray-100 text-gray-800"
               }`}
             >
-              {isPublished ? "Published" : "Draft"}
+              {isPublished || "Draft"}
             </span>
 
             <Link

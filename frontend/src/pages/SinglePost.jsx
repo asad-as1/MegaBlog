@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button, Container } from "../components";
-import { getStorage, ref, deleteObject } from "firebase/storage"
 import parse from "html-react-parser";
 import axios from "axios";
 import Cookie from "cookies-js";
@@ -12,8 +11,7 @@ import ErrorComponent from "../pages/ErrorPage"; // Import the Error Component
 
 export default function SinglePost() {
   const token = Cookie.get("token");
-  const location = window.location.href.split("/");
-  const id = location[4];
+  const { id } = useParams();
   const navigate = useNavigate();
   const MySwal = withReactContent(Swal);
   
@@ -61,7 +59,7 @@ export default function SinglePost() {
 
     fetchUserData();
     fetchPostData();
-  }, [id, loggedInUserId, errorMessage]);
+  }, [id, loggedInUserId, token]);
 
   // Function to handle sharing
   const handleShare = () => {
@@ -202,8 +200,10 @@ export default function SinglePost() {
 
   const addPostToFavorites = async () => {
     try {
-      const res = await axios.get(
+      const res = await axios.post(
         `${import.meta.env.VITE_URL}user/favourites/${post?._id}`, { 
+        },
+        {
           headers: { Authorization: `Bearer ${token}` },
           withCredentials: true,
         }
@@ -234,8 +234,8 @@ export default function SinglePost() {
   
 const RemoveFromFavorites = async (e) => {
   try {
-    const res = await axios.get(
-      `${import.meta.env.VITE_URL}user/removeFavourites/${post?._id}`, {
+    const res = await axios.delete(
+      `${import.meta.env.VITE_URL}user/favourites/${post?._id}`, {
         headers: { Authorization: `Bearer ${token}` },
         withCredentials: true,
       }
@@ -279,8 +279,7 @@ const RemoveFromFavorites = async (e) => {
     }
   };
 
-  const deletePost = async (fileUrl) => {
-    // console.log(fileUrl)
+  const deletePost = async () => {
     const result = await MySwal.fire({
       title: 'Are you sure?',
       text: "This action cannot be undone!",
@@ -294,21 +293,10 @@ const RemoveFromFavorites = async (e) => {
   
     if (result.isConfirmed) {
       try {
-        // Delete post from backend
         await axios.delete(`${import.meta.env.VITE_URL}post/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
           withCredentials: true,
         });
-  
-        // Delete file from Firebase Storage
-        if (fileUrl) {
-          const storage = getStorage();
-          const filePath = decodeURIComponent(fileUrl.split("/").pop().split("?")[0]);
-          // const filePath = decodedUrl; // Extract path from URL
-          const fileRef = ref(storage, filePath);
-  
-          await deleteObject(fileRef);
-        }
   
         MySwal.fire({
           icon: 'success',
@@ -383,7 +371,7 @@ const RemoveFromFavorites = async (e) => {
     checkIfPostIsFavorite();
     fetchLikesList();
     fetchCommentsList();
-  }, [id, errorMessage]);
+  }, [id, token]);
 
   return (
     <div className="p-8">
@@ -425,7 +413,7 @@ const RemoveFromFavorites = async (e) => {
               <p className="mb-4 text-center">
                 Posted by:
                 <Link
-                  to={`/profile/${post?.author?._id}`}
+                  to={`/profile/${post?.author?.username}`}
                   className="ml-2 font-semibold"
                 >
                   {post?.author?.username}
@@ -465,7 +453,7 @@ const RemoveFromFavorites = async (e) => {
                   <Button
                     bgColor="bg-red-500"
                     className="mb-3 md:mb-0 h-10 px-4"
-                    onClick={() => deletePost(post?.media?.url)}
+                    onClick={() => deletePost()}
                   >
                     Delete
                   </Button>

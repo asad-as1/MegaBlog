@@ -2,14 +2,12 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button, Input } from "./index.js";
 import { useForm } from "react-hook-form";
-import { login } from "./Login.jsx"; // Ensure correct import
-import { upload } from "../firebase.js";
+import { uploadMedia } from "../api/media.js";
 import axios from "axios";
 import Cookie from "cookies-js";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import Swal from "sweetalert2";
 import Side from "./Side.jsx";
-import { getStorage, ref, deleteObject } from "firebase/storage"
 
 
 function Signup({ user }) {
@@ -41,6 +39,7 @@ function Signup({ user }) {
         name: user.name || "",
         email: user.email || "",
         bio: user.bio || "",
+        profilePicturePublicId: user.profilePicturePublicId || "",
       });
     }
   }, [user]);
@@ -63,28 +62,19 @@ function Signup({ user }) {
           return; // Stop execution
         }
   
-        // Delete previous profile picture if exists
-        if (user?.profilePicture) {
-          const prevImageUrl = user.profilePicture;
-          const storageRef = getStorage();
-          const imageRef = ref(storageRef, prevImageUrl);
-          await deleteObject(imageRef).catch((error) => {
-            console.error("Error deleting previous profile picture:", error);
-          });
-        }
-  
         const startTime = Date.now();
   
-        // Upload new profile picture
-        const url = await upload(file, (progress) => {
+        const mediaResult = await uploadMedia(file, (progress) => {
           setUploadProgress(progress);
         });
   
         const endTime = Date.now();
         setUploadTime(((endTime - startTime) / 1000).toFixed(2));
-        data.profilePicture = url;
+        data.profilePicture = mediaResult.url;
+        data.profilePicturePublicId = mediaResult.publicId;
       } else {
         data.profilePicture = user?.profilePicture || "";
+        data.profilePicturePublicId = user?.profilePicturePublicId || "";
       }
   
       let res;
@@ -107,13 +97,21 @@ function Signup({ user }) {
       } else {
         res = await axios.post(`${import.meta.env.VITE_URL}user/register`, data);
         if (res?.status === 201) {
+          Cookie.set("token", res.data.token, {
+            secure: window.location.protocol === "https:",
+            sameSite: "Lax",
+          });
+
           await Swal.fire({
             icon: "success",
-            title: "Successfully Registered",
-            confirmButtonText: "OK",
+            title: "Account Created",
+            text: "Welcome to BlogBuddy!",
+            timer: 1500,
+            showConfirmButton: false,
             confirmButtonColor: "#007BFF",
           }).then(() => {
-            login(data, navigate, () => {}, "/");
+            reset();
+            navigate("/");
           });
         }
       }

@@ -10,13 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@firebase/analytics": "^0.10.7",
     "@reduxjs/toolkit": "^2.1.0",
     "@tinymce/tinymce-react": "^4.3.2",
     "appwrite": "^13.0.1",
     "axios": "^1.7.4",
     "cookies-js": "^1.2.3",
-    "firebase": "^10.13.0",
     "framer-motion": "^11.13.1",
     "html-react-parser": "^5.1.1",
     "html-to-text": "^9.0.5",

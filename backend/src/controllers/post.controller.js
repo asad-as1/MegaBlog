@@ -1,11 +1,22 @@
 const Post = require("../models/post");
 const User = require("../models/user");
+const Notification = require("../models/notification");
+const cloudinary = require("../config/cloudinary");
+const { createNotification } = require("../utils/notification");
 
 // Create a new post
 exports.createPost = async (req, res) => {
   try {
-    const { title, content, categories, media, isPublished } = req.body;
+    const { title, content, categories, media, isPublished, scheduledAt } = req.body;
     const user = req.user;
+
+    if (!media?.url || !media?.publicId || !media?.resourceType) {
+      return res.status(400).json({ message: "Media upload is required" });
+    }
+
+    if (isPublished === "Scheduled" && !scheduledAt) {
+      return res.status(400).json({ message: "scheduledAt is required for scheduled posts" });
+    }
 
     const newPost = new Post({
       author: user.id,
@@ -13,10 +24,13 @@ exports.createPost = async (req, res) => {
       content,
       media: {
         url: media.url,
-        isVideo: media.isVideo || false,
+        publicId: media.publicId,
+        resourceType: media.resourceType,
+        isVideo: media.resourceType === "video",
       },
       categories,
       isPublished,
+      scheduledAt: isPublished === "Scheduled" ? scheduledAt : null,
     });
 
     const savedPost = await newPost.save();
@@ -32,13 +46,38 @@ exports.createPost = async (req, res) => {
   }
 };
 
-// Get all posts
+// Get all posts (with pagination)
 exports.getAllPosts = async (req, res) => {
   try {
-    const posts = await Post.find();
-    res.status(200).json(posts);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit, 10) || 9, 1);
+    const skip = (page - 1) * limit;
+
+    await Post.updateMany(
+      {
+        isPublished: "Scheduled",
+        scheduledAt: { $lte: new Date() },
+      },
+      { $set: { isPublished: "Public", scheduledAt: null } }
+    );
+
+    const filter = { isPublished: "Public" };
+    const total = await Post.countDocuments(filter);
+
+    const posts = await Post.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    return res.status(200).json({
+      posts,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching posts", error });
+    return res.status(500).json({ message: "Error fetching posts", error });
   }
 };
 
@@ -64,7 +103,36 @@ exports.getPostById = async (req, res) => {
 exports.updatePost = async (req, res) => {
   try {
     const postId = req.params.postId;
-    const { title, categories, content, media, isPublished } = req.body;
+    const { title, categories, content, media, isPublished, scheduledAt } = req.body;
+    const existingPost = await Post.findById(postId);
+    if (!existingPost) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    if (
+      existingPost.author.toString() !== req.user.id.toString() &&
+      req.user.role !== "admin"
+    ) {
+      return res.status(403).json({ message: "You are not authorized to update this post" });
+    }
+
+    if (!media?.url || !media?.publicId || !media?.resourceType) {
+      return res.status(400).json({ message: "Media upload is required" });
+    }
+
+    if (isPublished === "Scheduled" && !scheduledAt) {
+      return res.status(400).json({ message: "scheduledAt is required for scheduled posts" });
+    }
+
+    if (
+      existingPost.media?.publicId &&
+      media?.publicId &&
+      existingPost.media.publicId !== media.publicId
+    ) {
+      await cloudinary.uploader.destroy(existingPost.media.publicId, {
+        resource_type: existingPost.media.resourceType || "image",
+      });
+    }
 
     const updatedPost = await Post.findByIdAndUpdate(
       postId,
@@ -73,10 +141,13 @@ exports.updatePost = async (req, res) => {
         content,
         media: {
           url: media.url,
-          isVideo: media.isVideo || false,
+          publicId: media.publicId,
+          resourceType: media.resourceType,
+          isVideo: media.resourceType === "video",
         },
         categories,
         isPublished,
+        scheduledAt: isPublished === "Scheduled" ? scheduledAt : null,
         updatedAt: Date.now(),
       },
       { new: true }
@@ -113,12 +184,17 @@ exports.deletePost = async (req, res) => {
         .json({ message: "You are not authorized to delete this post" });
     }
 
-    // Delete the post
+    if (post.media?.publicId) {
+      await cloudinary.uploader.destroy(post.media.publicId, {
+        resource_type: post.media.resourceType || "image",
+      });
+    }
+
     const deletedPost = await Post.findByIdAndDelete(postId);
 
     if (deletedPost) {
       // Remove the post ID from the user's posts array
-      await User.findByIdAndUpdate(userId, {
+      await User.findByIdAndUpdate(post.author, {
         $pull: { posts: postId, favourites: postId },
       });
 
@@ -127,6 +203,7 @@ exports.deletePost = async (req, res) => {
         { favourites: postId },
         { $pull: { favourites: postId } }
       );
+      await Notification.deleteMany({ post: postId });
 
       res.status(200).json({ message: "Post deleted successfully" });
     } else {
@@ -149,12 +226,20 @@ exports.likePost = async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    if (post.likes.includes(userId)) {
+    if (post.likes.some((id) => id.toString() === userId.toString())) {
       return res.status(400).json({ message: "You already liked this post" });
     }
 
     post.likes.push(userId);
-    await post.save();
+    // Avoid validating required `media.*` on like-only save
+    await post.save({ validateBeforeSave: false });
+
+    await createNotification({
+      recipient: post.author,
+      sender: userId,
+      type: "like",
+      post: post._id,
+    });
 
     res.status(200).json({ message: "Post liked successfully" });
   } catch (error) {
@@ -174,12 +259,13 @@ exports.unlikePost = async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    if (!post.likes.includes(userId)) {
+    if (!post.likes.some((id) => id.toString() === userId.toString())) {
       return res.status(400).json({ message: "You have not liked this post" });
     }
 
     post.likes.pull(userId);
-    await post.save();
+    // Avoid validating required `media.*` on unlike-only save
+    await post.save({ validateBeforeSave: false });
 
     res.status(200).json({ message: "Post unliked successfully" });
   } catch (error) {
@@ -191,26 +277,39 @@ exports.unlikePost = async (req, res) => {
 exports.addComment = async (req, res) => {
   try {
     const postId = req.params.postId;
-    // console.log(req.body)
     const { comment } = req.body;
+    const trimmedComment = comment?.trim();
     const userId = req.user.id;
 
-    const post = await Post.findById(postId);
+    if (!trimmedComment) {
+      return res.status(400).json({ message: "Comment cannot be empty" });
+    }
 
+    const post = await Post.findById(postId);
     if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
     post.comments.push({
       user: userId,
-      comment,
+      comment: trimmedComment,
       createdAt: Date.now(),
     });
 
-    await post.save();
+    // IMPORTANT: avoid validating required `media.*` on comment-only save
+    await post.save({ validateBeforeSave: false });
+
+    await createNotification({
+      recipient: post.author,
+      sender: userId,
+      type: "comment",
+      post: post._id,
+      comment: trimmedComment.substring(0, 120),
+    });
+
     res.status(201).json({ message: "Comment added successfully" });
   } catch (error) {
-    res.status(500).json({ message: "Error adding comment", error });
+    return res.status(500).json({ message: "Error adding comment", error });
   }
 };
 
@@ -286,7 +385,7 @@ exports.fetchCommentsList = async (req, res) => {
   try {
     const post = await Post.findById(postId).populate({
       path: "comments.user", // Path to the user field within comments
-      select: "username", // Select only the 'username' field from the User model
+      select: "username profilePicture", // Select only required fields
     });
 
     if (!post) {
@@ -332,3 +431,29 @@ exports.searchPosts = async (req, res) => {
   }
 };
 
+exports.updatePostVisibility = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only admin can moderate post visibility" });
+    }
+
+    const { isPublished } = req.body;
+    if (!["Public", "Private"].includes(isPublished)) {
+      return res.status(400).json({ message: "isPublished must be Public or Private" });
+    }
+
+    const updatedPost = await Post.findByIdAndUpdate(
+      req.params.postId,
+      { isPublished, scheduledAt: null },
+      { new: true }
+    );
+
+    if (!updatedPost) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    return res.status(200).json({ message: "Post visibility updated", post: updatedPost });
+  } catch (error) {
+    return res.status(500).json({ message: "Error updating visibility", error: error.message });
+  }
+};

@@ -15,9 +15,12 @@ export const login = async (data, navigate, setError, from) => {
     const res = await axios.post(`${import.meta.env.VITE_URL}user/login`, data);
     if (res?.status === 200) {
       Cookie.set("token", res.data.token, {
-        httpOnly: true,
-        secure: true,
+        // httpOnly cannot be set reliably from client-side; keep cookie usable in browser.
+        httpOnly: false,
+        secure: import.meta.env.PROD,
+        sameSite: import.meta.env.PROD ? "none" : "lax",
       });
+
 
       Swal.fire({
         icon: "success",

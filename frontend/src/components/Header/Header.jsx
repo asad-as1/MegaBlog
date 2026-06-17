@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Cookie from "cookies-js";
 import axios from "axios";
-import { Menu, X, Sun, Moon, LogOut, Home, User, Search, PlusCircle, Heart } from "lucide-react";
+import { Menu, X, Sun, Moon, LogOut, Home, User, Search, PlusCircle, Heart, Bell } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 function Header({ toggleDarkMode, isDarkMode }) {
@@ -10,6 +10,7 @@ function Header({ toggleDarkMode, isDarkMode }) {
   const [authStatus, setAuthStatus] = useState(false);
   const [user, setUser] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const token = Cookie.get("token");
   const menuRef = useRef(null);
 
@@ -34,6 +35,33 @@ function Header({ toggleDarkMode, isDarkMode }) {
     checkAuth();
   }, [token]);
 
+  useEffect(() => {
+    let intervalRef;
+    const fetchUnreadCount = async () => {
+      if (!token) {
+        setUnreadCount(0);
+        return;
+      }
+      try {
+        const res = await axios.get(`${import.meta.env.VITE_URL}notifications/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+          withCredentials: true,
+        });
+        setUnreadCount(res.data.unreadCount || 0);
+      } catch (error) {
+        setUnreadCount(0);
+      }
+    };
+
+    fetchUnreadCount();
+    if (token) {
+      intervalRef = setInterval(fetchUnreadCount, 15000);
+    }
+    return () => {
+      if (intervalRef) clearInterval(intervalRef);
+    };
+  }, [token]);
+
   const handleDarkModeToggle = () => {
     toggleDarkMode();
     Cookie.set("darkMode", !isDarkMode);
@@ -54,6 +82,7 @@ function Header({ toggleDarkMode, isDarkMode }) {
     { name: "Signup", slug: "/signup", active: !authStatus, icon: User },
     { name: "Add Post", slug: "/add-post", active: authStatus, icon: PlusCircle },
     { name: "Search", slug: "/search", active: authStatus, icon: Search },
+    { name: `Notifications${unreadCount ? ` (${unreadCount})` : ""}`, slug: "/notifications", active: authStatus, icon: Bell },
   ];
 
   useEffect(() => {

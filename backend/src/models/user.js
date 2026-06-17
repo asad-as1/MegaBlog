@@ -36,6 +36,10 @@ const userSchema = new Schema({
     type: String,
     default: ''
   },
+  profilePicturePublicId: {
+    type: String,
+    default: "",
+  },
   role: {
     type: String,
     enum: ['user', 'admin'],
@@ -48,6 +52,14 @@ const userSchema = new Schema({
   favourites: [{
     type: Schema.Types.ObjectId,
     ref: 'Post'
+  }],
+  followers: [{
+    type: Schema.Types.ObjectId,
+    ref: "User"
+  }],
+  following: [{
+    type: Schema.Types.ObjectId,
+    ref: "User"
   }],
   createdAt: {
     type: Date,
